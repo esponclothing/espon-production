@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import AgentLayout from '../../components/AgentLayout';
 import { useAuth } from '../../lib/auth';
 import { supabase } from '../../lib/supabase';
-import { formatCurrency, getCurrentMonth, calculatePercentage, getProgressColor, formatWorkTime } from '../../lib/utils';
+import { formatCurrency, getCurrentMonth, calculatePercentage, getProgressColor, _formatWorkTime } from '../../lib/utils';
 import { format } from 'date-fns';
 
 export default function Dashboard() {
