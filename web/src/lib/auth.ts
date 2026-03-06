@@ -1,161 +1,136 @@
 import { supabase } from './supabase';
+import { useState, useEffect } from 'react';
 
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  role: 'agent' | 'admin';
-  base_salary: number;
-  is_active: boolean;
-}
-
-export interface AuthState {
-  user: User | null;
-  session: any | null;
-  loading: boolean;
-}
-
+// Auth service object
 export const authService = {
-  // Sign in with email and password
   async signIn(email: string, password: string) {
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (authError) throw authError;
+      if (error) throw error;
 
-    // Fetch user profile from users table
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', authData.user.id)
-      .single();
+      // Fetch user profile
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user?.id)
+        .single();
 
-    if (userError) throw userError;
+      if (profileError) throw profileError;
 
-    return { user: userData, session: authData.session };
+      return { user: profile, session: data.session };
+    } catch (error) {
+      console.error('Sign in error:', error);
+      throw error;
+    }
   },
 
-  // Sign out
   async signOut() {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      console.error('Sign out error:', error);
+      throw error;
+    }
   },
 
-  // Get current user profile
-  async getCurrentUser(): Promise<User | null> {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) return null;
+  async getCurrentUser() {
+    try {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) return null;
 
-    const { data: userData, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+      const { data: profile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user.id)
+        .single();
 
-    if (error) throw error;
-
-    return userData;
+      return profile;
+    } catch (error) {
+      console.error('Get current user error:', error);
+      return null;
+    }
   },
 
-  // Check if user has admin role
-  async isAdmin(): Promise<boolean> {
-    const user = await this.getCurrentUser();
-    return user?.role === 'admin';
+  async isAdmin() {
+    try {
+      const user = await this.getCurrentUser();
+      return user?.role === 'admin';
+    } catch {
+      return false;
+    }
   },
 
-  // Subscribe to auth changes
-  onAuthStateChange(callback: (_user: User | null, session: any) => void) {
-    return supabase.auth.onAuthStateChange(async (event, session) => {
+  onAuthStateChange(callback: (event: string, user: any) => void) {
+    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        const { data: userData } = await supabase
+        const { data: profile } = await supabase
           .from('users')
           .select('*')
           .eq('id', session.user.id)
           .single();
-        
-        callback(userData, session);
+        callback(_event, profile);
       } else {
-        callback(null, null);
+        callback(_event, null);
       }
     });
+
+    return data?.subscription;
   },
 
-  // Reset password (request)
   async resetPassword(email: string) {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    if (error) throw error;
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      if (error) throw error;
+    } catch (error) {
+      console.error('Reset password error:', error);
+      throw error;
+    }
   },
 
-  // Update password
   async updatePassword(newPassword: string) {
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
-    if (error) throw error;
-  }
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (error) throw error;
+    } catch (error) {
+      console.error('Update password error:', error);
+      throw error;
+    }
+  },
 };
 
-// Hook for React components
-import { useState, useEffect } from 'react';
-
-export function useAuth() {
-  const [state, setState] = useState<AuthState>({
-    user: null,
-    session: null,
-    loading: true,
-  });
+// useAuth hook
+export const useAuth = () => {
+  const [user, setUser] = useState<any>(null);
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-          .then(({ data: userData }) => {
-            setState({
-              user: userData,
-              session: session,
-              loading: false,
-            });
-          });
-      } else {
-        setState({ user: null, session: null, loading: false });
-      }
+    // Check current session
+    const checkAuth = async () => {
+      const user = await authService.getCurrentUser();
+      setUser(user);
+      setLoading(false);
+    };
+
+    checkAuth();
+
+    // Subscribe to auth changes
+    const unsubscribe = authService.onAuthStateChange((_event, user) => {
+      setUser(user);
+      setLoading(false);
     });
 
-    // Subscribe to changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session?.user) {
-          const { data: userData } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-
-          setState({
-            user: userData,
-            session: session,
-            loading: false,
-          });
-        } else {
-          setState({ user: null, session: null, loading: false });
-        }
-      }
-    );
-
     return () => {
-      subscription.unsubscribe();
+      unsubscribe?.();
     };
   }, []);
 
-  return state;
-}
+  return { user, session, loading };
+};
